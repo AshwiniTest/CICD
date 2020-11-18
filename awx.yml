@@ -1,0 +1,81 @@
+---
+- hosts: localhost
+  gather_facts: false
+
+  tasks:
+
+
+    - name: Verifying the username
+      command: whoami
+      register: who_ami
+      become: no
+
+    - name: Creating project installation directory
+      command: mkdir -p /home/"{{ who_ami.stdout }}"/awx_project/project
+      args:
+       removes: /home/"{{ who_ami.stdout }}"/awx_project/project
+      become: no
+
+
+#    - name: Creating project installation directory
+#      file: path=/home/"{{ who_ami.stdout }}"/awx_project/project state=directory recurse=yes
+#      args:
+#        removes: /home/"{{ who_ami.stdout }}"/awx_project/project
+#      become: no
+
+
+    - name: Cloning git repo
+      git:
+       repo: https://github.com/ansible/awx.git
+       dest: /home/"{{ who_ami.stdout }}"/awx_project/project
+       force: yes
+      become: yes
+
+
+    - name: Install packages
+      apt: name="{{ item }}" state=present
+      with_items:
+         - python3-pip
+         - docker.io
+      become: yes
+
+    - name: Giving permission to docker user
+      command: "{{ item }}"
+      with_items:
+        - gpasswd -a $USER docker
+        - newgrp docker
+      become: yes
+
+    - name: Update pip3
+      shell: pip3 install --upgrade setuptools
+
+
+    - name: Installing docker compose
+      shell: pip3 install "{{ item }}"
+      with_items:
+          - jsonschema
+          - docker-compose
+      become: true
+
+    - name: Creating directories
+      shell: mkdir -p ~/.awx/awxcompose
+      become: yes
+
+    - name: Modiying the postgres_data_dir
+      lineinfile:
+        path: /home/"{{ who_ami.stdout }}"/awx_project/project/installer/inventory
+        regexp: postgres_data_dir=.*
+        line: postgres_data_dir=/var/lib/pgdocker
+      become: yes 
+
+    - name: Running awx install ansible script. Please wait some time until script completes
+      shell: ansible-playbook -i inventory install.yml
+      args:
+        chdir: /home/"{{ who_ami.stdout }}"/awx_project/project/installer
+      register: output
+
+    - name: Try to access with below
+      command: echo `hostname -I` && echo "localhost"
+      when: output.changed
+      
+ansible-playbook -i prod-hosts playbooks/c5001-awx/awx.yml -l c5001-dckr101.scnet.ms --check
